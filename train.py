@@ -34,11 +34,14 @@ def get_args():
     )
     parser.add_argument('--seed', type=int, help='random seed (default: 0)', default=0)
     parser.add_argument('--batch_size', type=int, help='batch size')
-    parser.add_argument("--dataset", type=str, default="mnist")
+    parser.add_argument("--dataset", type=str, default="cifar10")
     parser.add_argument("--log_dir", type=str)
-    parser.add_argument("--detect_anomaly", action='store_true')
-    parser.add_argument("--test", action='store_true')
-    parser.add_argument("--port", type=int, default=12355)
+    parser.add_argument(
+        '--save_every', 
+        type=int, 
+        help='How often to save a snapshot (default: 100)', 
+        default=100
+    )
 
     args = parser.parse_args()
 
@@ -64,23 +67,22 @@ def train(
 ):
     global_rank = int(os.environ["RANK"])
     model.train()
-    with torch.autograd.set_detect_anomaly(detect_anomaly):
-        for step, (x, y) in enumerate(dataloader):
-            optimizer.zero_grad()
+    for step, (x, y) in enumerate(dataloader):
+        optimizer.zero_grad()
 
-            loss = model(x).mean()
-            loss.backward()
-            optimizer.step()
-            scheduler.step()
-            ema_model.update_parameters(model)
+        loss = model(x).mean()
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+        ema_model.update_parameters(model)
 
-            global_step = 1000 * epoch + step
-            writer.add_hparams(
-                {'dataset': args.dataset},
-                {f'loss/train/{global_rank}': loss.div(x[0].numel()).item()},
-                run_name='.',
-                global_step=global_step
-            )
+        global_step = 1000 * epoch + step
+        writer.add_hparams(
+            {'dataset': args.dataset},
+            {f'loss/train/{global_rank}': loss.div(x[0].numel()).item()},
+            run_name='.',
+            global_step=global_step
+        )
 
     global_step = 1000 * ( epoch + 1 )
     writer.add_image(
@@ -97,6 +99,16 @@ def train(
         global_step
     )
 
+    if global_rank == 0 and (epoch+1) % args.save_every == 0:
+        snapshot = {
+            "MODEL_STATE": model.module.state_dict(),
+            "EMA_MODEL_STATE": ema_model.module.state_dict(),
+            "OPTIMIZER_STATE": optimizer.state_dict(),
+            "SCHEDULER_STATE": scheduler.state_dict(),
+            "EPOCHS_RUN": epoch+1,
+        }
+        torch.save(snapshot, args.snapshot_path)
+
 
 def set_seed(seed):
     torch.manual_seed(args.seed)
@@ -107,10 +119,6 @@ def set_seed(seed):
 def setup():
     dist.init_process_group(backend="nccl")
     torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
-
-
-def cleanup():
-    dist.destroy_process_group()
 
 
 def run(args):
@@ -243,10 +251,22 @@ def run(args):
     ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(0.9999))
 
     if args.log_dir is None:
-        args.log_dir = "runs/" + args.dataset
+        args.log_dir = os.path.join("runs", f"{args.dataset}-{args.seed}")
     writer = SummaryWriter(args.log_dir)
+    
+    args.snapshot_path = os.path.join(args.log_dir, "snapshot.pt")
 
-    for epoch in tqdm(range(num_epochs)):
+    epoch_start = 0
+    if os.path.exists(args.snapshot_path):
+        loc = f"cuda:{local_rank}"
+        snapshot = torch.load(args.snapshot_path, map_location=loc)
+        model.load_state_dict(snapshot["MODEL_STATE"])
+        ema_model.load_state_dict(snapshot["EMA_MODEL_STATE"])
+        optimizer.load_state_dict(snapshot["OPTIMIZER_STATE"])
+        scheduler.load_state_dict(snapshot["SCHEDULER_STATE"])
+        epoch_start = snapshot["EPOCHS_RUN"]
+
+    for epoch in tqdm(range(epoch_start, num_epochs)):
         train(
             args, 
             model, 
@@ -258,10 +278,8 @@ def run(args):
             epoch
         ) 
 
-    if int(os.environ["RANK"]) == 0:
-        writer.close()
-
-    cleanup()
+    writer.close()
+    dist.destroy_process_group()
 
 
 if __name__ == "__main__":

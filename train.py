@@ -78,6 +78,8 @@ def train(
                     global_step=global_step
                 )
 
+        x_hat = model.module.sample(x.size(0))
+
         if int(os.environ["RANK"]) == 0:
             global_step = 1000 * ( epoch + 1 )
             writer.add_image(
@@ -86,7 +88,6 @@ def train(
                 global_step
             )
 
-            x_hat = model.module.sample(x.size(0))
             writer.add_image(
                 'samples', 
                 make_grid(x_hat, 8, pad_value=1.0), 

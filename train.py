@@ -5,16 +5,17 @@ import random
 import numpy as np
 from tqdm import tqdm
 import torch
-from torch.optim import Adam
-from torch.optim.lr_scheduler import LinearLR
-from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import DataLoader, RandomSampler
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.optim import Adam
+from torch.optim.lr_scheduler import LinearLR
+from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
+from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import DataLoader, RandomSampler
 import torchvision
-from torchvision.transforms import v2
 from torchvision.datasets import MNIST, CIFAR10, ImageFolder
+from torchvision.transforms import v2
 from torchvision.utils import make_grid
 
 from datasets import CelebAHQ
@@ -34,6 +35,7 @@ def get_args():
     parser.add_argument('--seed', type=int, help='random seed (default: 0)', default=0)
     parser.add_argument('--batch_size', type=int, help='batch size')
     parser.add_argument("--dataset", type=str, default="mnist")
+    parser.add_argument("--log_dir", type=str)
     parser.add_argument("--detect_anomaly", action='store_true')
     parser.add_argument("--test", action='store_true')
     parser.add_argument("--port", type=int, default=12355)
@@ -52,6 +54,7 @@ def set_seed(seed):
 def train(
     args, 
     model, 
+    ema_model,
     optimizer, 
     scheduler, 
     dataloader, 
@@ -59,6 +62,7 @@ def train(
     epoch, 
     detect_anomaly=False
 ):
+    global_rank = int(os.environ["RANK"])
     model.train()
     with torch.autograd.set_detect_anomaly(detect_anomaly):
         for step, (x, y) in enumerate(dataloader):
@@ -68,31 +72,30 @@ def train(
             loss.backward()
             optimizer.step()
             scheduler.step()
+            ema_model.update_parameters(model)
 
-            if int(os.environ["RANK"]) == 0:
-                global_step = 1000 * epoch + step
-                writer.add_hparams(
-                    {'dataset': args.dataset},
-                    {'loss/train': loss.div(x[0].numel()).item()},
-                    run_name='.',
-                    global_step=global_step
-                )
-
-        x_hat = model.module.sample(x.size(0))
-
-        if int(os.environ["RANK"]) == 0:
-            global_step = 1000 * ( epoch + 1 )
-            writer.add_image(
-                'ground truth', 
-                make_grid(x, 8, pad_value=1.0), 
-                global_step
+            global_step = 1000 * epoch + step
+            writer.add_hparams(
+                {'dataset': args.dataset},
+                {f'loss/train/{global_rank}': loss.div(x[0].numel()).item()},
+                run_name='.',
+                global_step=global_step
             )
 
-            writer.add_image(
-                'samples', 
-                make_grid(x_hat, 8, pad_value=1.0), 
-                global_step
-            )
+    global_step = 1000 * ( epoch + 1 )
+    writer.add_image(
+        f'ground truth/{global_rank}', 
+        make_grid(x, 8, pad_value=1.0), 
+        global_step
+    )
+
+    ema_model.eval()
+    x_hat = ema_model.module.module.sample(x.size(0))
+    writer.add_image(
+        f'samples/{global_rank}', 
+        make_grid(x_hat, 8, pad_value=1.0), 
+        global_step
+    )
 
 
 def set_seed(seed):
@@ -236,16 +239,18 @@ def run(args):
     optimizer = Adam(model.parameters(), lr=lr)
     scheduler = LinearLR(optimizer, 1.0/5000, 1.0, 5000)
 
-    writer = None
-    if int(os.environ["RANK"]) == 0:
-        # Tensorboard
-        writer = SummaryWriter()
+    # EMA
+    ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(0.9999))
 
+    if args.log_dir is None:
+        args.log_dir = "runs/" + args.dataset
+    writer = SummaryWriter(args.log_dir)
 
     for epoch in tqdm(range(num_epochs)):
         train(
             args, 
             model, 
+            ema_model,
             optimizer, 
             scheduler, 
             dataloader, 

@@ -29,22 +29,13 @@ def get_args():
         '--num_workers', 
         type=int, 
         help='number of data loading workers', 
-        default=os.cpu_count()
+        default=4
     )
     parser.add_argument('--seed', type=int, help='random seed (default: 0)', default=0)
-    parser.add_argument("--num_epochs", type=int, default=int(1e7),
-                        help="number of epochs (default: 1e7)")
+    parser.add_argument('--batch_size', type=int, help='batch size')
     parser.add_argument("--dataset", type=str, default="mnist")
-    parser.add_argument(
-        '--device_ids', 
-        type=int, 
-        nargs='+', 
-        help='list of CUDA devices (default: list(range(torch.cuda.device_count())))', 
-        default=list(range(torch.cuda.device_count()))
-    )
     parser.add_argument("--detect_anomaly", action='store_true')
     parser.add_argument("--test", action='store_true')
-    parser.add_argument("--world_size", type=int, default=torch.cuda.device_count())
     parser.add_argument("--port", type=int, default=12355)
 
     args = parser.parse_args()
@@ -59,7 +50,6 @@ def set_seed(seed):
 
 
 def train(
-    rank, 
     args, 
     model, 
     optimizer, 
@@ -79,7 +69,7 @@ def train(
             optimizer.step()
             scheduler.step()
 
-            if rank == 0:
+            if int(os.environ["RANK"]) == 0:
                 global_step = 1000 * epoch + step
                 writer.add_hparams(
                     {'dataset': args.dataset},
@@ -88,7 +78,7 @@ def train(
                     global_step=global_step
                 )
 
-        if rank == 0:
+        if int(os.environ["RANK"]) == 0:
             global_step = 1000 * ( epoch + 1 )
             writer.add_image(
                 'ground truth', 
@@ -110,25 +100,18 @@ def set_seed(seed):
     np.random.seed(args.seed)
 
 
-def setup(rank, args):
-    port = args.port
-    os.environ['MASTER_ADDR'] = 'localhost'
-    while True:
-        os.environ['MASTER_PORT'] = str(port)
-        try:
-            # initialize the process group
-            dist.init_process_group("nccl", rank=rank, world_size=args.world_size)
-        except RuntimeError:
-            port += 1
-        else:
-            break
+def setup():
+    dist.init_process_group(backend="nccl")
+    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+
 
 def cleanup():
     dist.destroy_process_group()
 
 
-def run(rank, args):
-    setup(rank, args)
+def run(args):
+    setup()
+    local_rank = int(os.environ["LOCAL_RANK"])
 
     # Dataset
     if args.dataset == "mnist":
@@ -145,7 +128,6 @@ def run(rank, args):
         resolution = 28
         channels = [64, 128, 256]
         dropout = 0.0
-        batch_size = 64
         lr = 2e-4
     
     elif args.dataset == "cifar10":
@@ -163,7 +145,6 @@ def run(rank, args):
         resolution = 32
         channels = [128, 256, 256, 256]
         dropout = 0.1
-        batch_size = 128
         lr = 2e-4
         num_epochs = 800
 
@@ -181,7 +162,6 @@ def run(rank, args):
         resolution = 256
         channels = [128, 128, 256, 256, 512, 512]
         dropout = 0.0
-        batch_size = 64
         lr = 2e-5
         num_epochs = 500
 
@@ -201,7 +181,6 @@ def run(rank, args):
         resolution = 256
         channels = [128, 128, 256, 256, 512, 512]
         dropout = 0.0
-        batch_size = 64
         lr = 2e-5
         num_epochs = 2400
 
@@ -221,20 +200,18 @@ def run(rank, args):
         resolution = 256
         channels = [128, 128, 256, 256, 512, 512]
         dropout = 0.0
-        batch_size = 64
         lr = 2e-5
         num_epochs = 1200
 
     else:
         raise NotImplementedError
 
-    batch_size = batch_size // args.world_size
-    num_workers = args.num_workers // args.world_size
+    num_workers = args.num_workers
     kwargs = {'num_workers': num_workers, 'pin_memory': True}
-    num_samples = 1000 * batch_size
+    num_samples = 1000 * args.batch_size
 
     generator = torch.Generator()
-    generator.manual_seed(args.world_size * args.seed + rank)
+    generator.manual_seed(args.seed + int(os.environ["RANK"]))
 
     sampler = RandomSampler(
         training_data, 
@@ -245,28 +222,27 @@ def run(rank, args):
 
     dataloader = DataLoader(
         training_data, 
-        batch_size=batch_size,
+        batch_size=args.batch_size,
         sampler=sampler, 
         **kwargs
     )
 
     # Model
     model = DDP(
-        DDPM(resolution, in_channels, channels).to(rank),
-        device_ids=[rank]
+        DDPM(resolution, in_channels, channels).to(local_rank),
+        device_ids=[local_rank]
     )
     optimizer = Adam(model.parameters(), lr=lr)
     scheduler = LinearLR(optimizer, 1.0/5000, 1.0, 5000)
 
     writer = None
-    if rank == 0:
+    if int(os.environ["RANK"]) == 0:
         # Tensorboard
         writer = SummaryWriter()
 
 
-    for epoch in tqdm(range(args.num_epochs)):
+    for epoch in tqdm(range(num_epochs)):
         train(
-            rank, 
             args, 
             model, 
             optimizer, 
@@ -276,7 +252,7 @@ def run(rank, args):
             epoch
         ) 
 
-    if rank == 0:
+    if int(os.environ["RANK"]) == 0:
         writer.close()
 
     cleanup()
@@ -285,10 +261,4 @@ def run(rank, args):
 if __name__ == "__main__":
     args = get_args()
     set_seed(args.seed)
-
-    mp.spawn(
-        run,
-        args=(args,),
-        nprocs=args.world_size,
-        join=True
-    )
+    run(args)

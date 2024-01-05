@@ -16,13 +16,13 @@ class CelebAHQ(VisionDataset):
         fnames = os.listdir(root)
         self.paths = [os.path.join(root, fname) for fname in fnames]
 
-    def __getitem__(self, index: int) -> Tuple[Any, None]:
+    def __getitem__(self, index: int) -> Tuple[Any, Any]:
         path = self.paths[index]
         sample = default_loader(path)
         if self.transform is not None:
             sample = self.transform(sample)
 
-        return sample, None
+        return sample, 0
 
     def __len__(self) -> int:
         return len(self.paths)

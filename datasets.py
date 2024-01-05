@@ -14,7 +14,7 @@ class CelebAHQ(VisionDataset):
         super().__init__(root, None, transform, None)
         root = os.path.expanduser(root)
         fnames = os.listdir(root)
-        self.paths = [os.path.join(root, fname) in fnames]
+        self.paths = [os.path.join(root, fname) for fname in fnames]
 
     def __getitem__(self, index: int) -> Tuple[Any, None]:
         path = self.paths[index]

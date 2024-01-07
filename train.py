@@ -90,7 +90,7 @@ def train(
         global_step
     )
 
-    generator = torch.Generator()
+    generator = torch.Generator(x.device)
     generator.manual_seed(args.seed + int(os.environ["RANK"]))
 
     ema_model.eval()

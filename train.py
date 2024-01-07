@@ -122,19 +122,39 @@ def setup():
 
 def run(args):
     setup()
+    global_rank = int(os.environ["RANK"])
     local_rank = int(os.environ["LOCAL_RANK"])
 
     # Dataset
     if args.dataset == "cifar10":
-        training_data = CIFAR10(
-            "./data",
-            download=True,
-            transform=v2.Compose([
-                v2.ToImage(),
-                v2.RandomHorizontalFlip(),
-                v2.ToDtype(torch.float32, scale=True)
-            ])
-        )
+        transform = v2.Compose([
+            v2.ToImage(),
+            v2.RandomHorizontalFlip(),
+            v2.ToDtype(torch.float32, scale=True)
+        ])
+
+        if global_rank == 0:
+            training_data = CIFAR10(
+                "./data",
+                download=True,
+                transform=transform
+            )
+
+        dist.barrier()
+        if global_rank != 0 and local_rank == 0:
+            training_data = CIFAR10(
+                "./data",
+                download=True,
+                transform=transform
+            )
+
+        dist.barrier()
+        if local_rank != 0:
+            training_data = CIFAR10(
+                "./data",
+                download=False,
+                transform=transform
+            )
 
         in_channels = 3
         resolution = 32

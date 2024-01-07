@@ -77,11 +77,10 @@ def train(
         ema_model.update_parameters(model)
 
         global_step = 1000 * epoch + step
-        writer.add_hparams(
-            {'dataset': args.dataset},
-            {f'loss/train/{global_rank}': loss.div(x[0].numel()).item()},
-            run_name='.',
-            global_step=global_step
+        writer.add_scalar(
+            f'loss/train/{global_rank}',
+            loss.div(x[0].numel()).item(),
+            global_step
         )
 
     global_step = 1000 * ( epoch + 1 )
@@ -99,6 +98,7 @@ def train(
         global_step
     )
 
+    dist.barrier()
     if global_rank == 0 and (epoch+1) % args.save_every == 0:
         snapshot = {
             "MODEL_STATE": model.module.state_dict(),
@@ -253,6 +253,11 @@ def run(args):
     if args.log_dir is None:
         args.log_dir = os.path.join("runs", f"{args.dataset}-{args.seed}")
     writer = SummaryWriter(args.log_dir)
+    writer.add_hparams(
+        {'dataset': args.dataset},
+        {f'loss/train/{int(os.environ["RANK"])}': np.inf},
+        run_name='.',
+    )
     
     args.snapshot_path = os.path.join(args.log_dir, "snapshot.pt")
 

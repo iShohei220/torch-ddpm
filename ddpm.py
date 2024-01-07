@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 import math
 
 import torch
@@ -54,7 +54,7 @@ class DDPM(nn.Module):
         return loss
         
     @torch.no_grad()
-    def sample(self, n: int = 1):
+    def sample(self, n: int = 1, generator: Optional[torch.Generator] = None):
         device = next(self.parameters()).device
         T = self.num_timesteps
         x_t = torch.randn(
@@ -62,6 +62,7 @@ class DDPM(nn.Module):
             self.in_channels,
             self.resolution,
             self.resolution,
+            generator=generator,
             device=device
         )
 

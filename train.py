@@ -90,8 +90,12 @@ def train(
         global_step
     )
 
+    generator = torch.Generator()
+    generator.manual_seed(args.seed + int(os.environ["RANK"]))
+
     ema_model.eval()
-    x_hat = ema_model.module.module.sample(x.size(0))
+    x_hat = ema_model.module.module.sample(x.size(0), generator)
+
     writer.add_image(
         f'samples/{global_rank}', 
         make_grid(x_hat, 8, pad_value=1.0), 

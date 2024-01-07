@@ -236,12 +236,6 @@ def run(args):
     if args.log_dir is None:
         args.log_dir = os.path.join("runs", f"{args.dataset}-{args.seed}")
     writer = SummaryWriter(args.log_dir)
-    writer.add_hparams(
-        {'dataset': args.dataset},
-        {f'loss/train/{int(os.environ["RANK"])}': np.inf},
-        run_name='.',
-    )
-    
     args.snapshot_path = os.path.join(args.log_dir, "snapshot.pt")
 
     epoch_start = 0

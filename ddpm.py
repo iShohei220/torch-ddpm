@@ -71,7 +71,8 @@ class DDPM(nn.Module):
         alphas_cumprod = alphas.cumprod(0)
 
         for t in range(T, 0, -1):
-            z = torch.randn_like(x_t) if t > 1 else torch.zeros_like(x_t)
+            z = torch.randn(x_t.size(), generator=generator, device=device) \
+                if t > 1 else torch.zeros_like(x_t)
 
             beta = betas[t-1]
             alpha = alphas[t-1]

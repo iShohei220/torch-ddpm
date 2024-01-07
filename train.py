@@ -14,7 +14,7 @@ from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader, RandomSampler
 import torchvision
-from torchvision.datasets import MNIST, CIFAR10, ImageFolder
+from torchvision.datasets import CIFAR10, LSUN
 from torchvision.transforms import v2
 from torchvision.utils import make_grid
 
@@ -90,7 +90,7 @@ def train(
         global_step
     )
 
-    generator = torch.Generator(x.device)
+    generator = torch.Generator(next(iter(model.parameters())).device)
     generator.manual_seed(args.seed + int(os.environ["RANK"]))
 
     ema_model.eval()

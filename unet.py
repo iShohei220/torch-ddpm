@@ -75,6 +75,10 @@ class AttnBlock(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
+        nn.init.kaiming_uniform_(
+            self.attn.in_proj_weight, 
+            nonlinearity="linear"
+        )
         nn.init.zeros_(self.attn.out_proj.weight)
         nn.init.zeros_(self.attn.out_proj.bias)
 

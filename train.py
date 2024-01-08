@@ -94,7 +94,7 @@ def train(
     generator.manual_seed(args.seed + int(os.environ["RANK"]))
 
     ema_model.eval()
-    x_hat = ema_model.module.module.sample(x.size(0), generator)
+    x_hat = ema_model.module.sample(x.size(0), generator)
 
     writer.add_image(
         f'samples/{global_rank}', 
@@ -105,7 +105,7 @@ def train(
     if global_rank == 0:
         snapshot = {
             "MODEL_STATE": model.module.state_dict(),
-            "EMA_MODEL_STATE": ema_model.module.state_dict(),
+            "EMA_MODEL_STATE": ema_model.state_dict(),
             "OPTIMIZER_STATE": optimizer.state_dict(),
             "SCHEDULER_STATE": scheduler.state_dict(),
             "EPOCHS_RUN": epoch+1,
@@ -247,15 +247,16 @@ def run(args):
     )
 
     # Model
-    model = DDP(
-        DDPM(resolution, in_channels, channels).to(local_rank),
-        device_ids=[local_rank]
-    )
+    model = DDPM(resolution, in_channels, channels).to(local_rank)
+
+    # Exponential moving average
+    ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(0.9999))
+
+    # DDP
+    model = DDP(model, device_ids=[local_rank])
+
     optimizer = Adam(model.parameters(), lr=lr)
     scheduler = LinearLR(optimizer, 1.0/5000, 1.0, 5000)
-
-    # EMA
-    ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(0.9999))
 
     if args.log_dir is None:
         args.log_dir = os.path.join("runs", f"{args.dataset}-{args.seed}")
@@ -266,7 +267,7 @@ def run(args):
     if os.path.exists(args.snapshot_path):
         loc = f"cuda:{local_rank}"
         snapshot = torch.load(args.snapshot_path, map_location=loc)
-        model.load_state_dict(snapshot["MODEL_STATE"])
+        model.module.load_state_dict(snapshot["MODEL_STATE"])
         ema_model.load_state_dict(snapshot["EMA_MODEL_STATE"])
         optimizer.load_state_dict(snapshot["OPTIMIZER_STATE"])
         scheduler.load_state_dict(snapshot["SCHEDULER_STATE"])

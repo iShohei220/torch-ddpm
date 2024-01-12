@@ -1,11 +1,13 @@
 from glob import glob
 import math
 from multiprocessing import Pool
+import os
 
 from cleanfid import fid
 import torch
 from torch import nn
 from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
+from torch.utils.tensorboard import SummaryWriter
 import torchvision
 
 from ddpm import DDPM
@@ -62,7 +64,6 @@ if __name__ == "main":
     set_seed(args.seed)
 
     data_dir = None
-    data_loader = None
     if args.dataset == "cifar10":
         in_channels = 3
         resolution = 32
@@ -135,3 +136,4 @@ if __name__ == "main":
         {"dataset": args.dataset},
         {"fid": fid}
     )
+    writer.close()

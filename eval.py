@@ -59,7 +59,7 @@ def set_seed(seed):
     np.random.seed(args.seed)
 
 
-if __name__ == "main":
+if __name__ == "__main__":
     args = get_args()
     set_seed(args.seed)
 

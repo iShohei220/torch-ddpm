@@ -15,8 +15,8 @@ class DDPM(nn.Module):
         resolution: int,
         in_channels: int,
         channels: List[int],
-        num_res_blocks: int = 2,
         dropout: float = 0.0,
+        num_res_blocks: int = 2,
         num_timesteps: int = 1000
     ) -> None:
         super().__init__()

@@ -247,7 +247,7 @@ def run(args):
     )
 
     # Model
-    model = DDPM(resolution, in_channels, channels).to(local_rank)
+    model = DDPM(resolution, in_channels, channels, dropout).to(local_rank)
 
     # Exponential moving average
     ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(0.9999))

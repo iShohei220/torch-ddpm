@@ -84,10 +84,13 @@ class AttnBlock(nn.Module):
 
     def forward(self, inputs: Tuple[Tensor, Tensor]):
         x, t_emb = inputs
+        identity = x
+
         out = self.gn(x)
         out = out.flatten(2).permute(2, 0, 1)
         out = self.attn(out, out, out)[0]
         out = out.permute(1, 2, 0).reshape(*x.size())
+        out += identity
         out = (out, t_emb)
 
         return out
@@ -161,7 +164,7 @@ class UNet(nn.Module):
         dropout: float = 0.
     ) -> None:
         super().__init__()
-        assert resolution in [28, 32, 256]
+        assert resolution in [32, 256]
         planes = [planes[0]] + planes 
         embedding_dim = 4 * planes[0]
         self.time_encoder = TimeEmbedding(embedding_dim)
@@ -182,8 +185,7 @@ class UNet(nn.Module):
                     dropout
                 )
             )
-            # if _resolution == 16:
-            if _resolution > 8 and _resolution <= 16:
+            if _resolution == 16:
                 enc_block.append(AttnBlock(planes[i+1]))
 
             enc_blocks = [enc_block]
@@ -206,8 +208,7 @@ class UNet(nn.Module):
                             dropout
                         )
                 )
-                # if _resolution == 16:
-                if _resolution > 8 and _resolution <= 16:
+                if _resolution == 16:
                     dec_block.append(AttnBlock(planes[i+1]))
 
                 dec_block.append(Upsample(planes[i+1]))
@@ -231,8 +232,7 @@ class UNet(nn.Module):
                         dropout
                     )
                 )
-                # if _resolution == 16:
-                if _resolution > 8 and _resolution <= 16:
+                if _resolution == 16:
                     enc_block.append(AttnBlock(planes[i+1]))
                     dec_block.append(AttnBlock(planes[i+1]))
 
@@ -260,8 +260,7 @@ class UNet(nn.Module):
                     )
                 )
 
-            # if _resolution == 16:
-            if _resolution > 8 and _resolution <= 16:
+            if _resolution == 16:
                 dec_block.append(AttnBlock(planes[i+1]))
 
             dec_blocks.append(dec_block)

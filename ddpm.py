@@ -20,7 +20,7 @@ class DDPM(nn.Module):
         num_timesteps: int = 1000
     ) -> None:
         super().__init__()
-        assert resolution in [28, 32, 256]
+        assert resolution in [32, 256]
         self.unet = UNet(resolution, in_channels, channels, num_res_blocks, dropout) 
         self.num_timesteps = num_timesteps
         self.in_channels = in_channels
